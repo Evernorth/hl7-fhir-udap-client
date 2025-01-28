@@ -7,17 +7,22 @@ const { v4: uuidv4 } = require('uuid')
 const udapClientError = require('./udap-client-error')
 
 class udapClient {
-    constructor(communityKeystoreFilename, communityKeystorePassword, trustAnchorFilename, clientId, serverBaseUrl, organizationId, organizationName, purposeOfUse) {
-        this.communityKeystoreFilename = communityKeystoreFilename
-        this.trustAnchorFilename = trustAnchorFilename
-        this.communityKeystore = udapCommon.parsePKCS12(communityKeystoreFilename, communityKeystorePassword)
+    constructor(community, clientId, serverBaseUrl, organizationId, organizationName, purposeOfUse) {
+        this.community = community
+        this.communityKeystoreFilename = this.community.privateKeyFilename
+        this.trustAnchorFilename = this.community.trustAnchorFilename
+        this.communityKeystore = udapCommon.parsePKCS12(this.communityKeystoreFilename, this.community.privateKeyPassword)
         this.communityKeypair = this.communityKeystore[0]
         //We're assuming we're using the first certificate found in the store.
         this.communityCert = this.communityKeypair.certChain[0]
-        this.trustAnchorObject = udapCommon.parseTrustAnchorPEM(trustAnchorFilename)
+        this.trustAnchorObject = udapCommon.parseTrustAnchorPEM(community.trustAnchorFilename)
         this.clientId = clientId
         this.serverBaseUrl = serverBaseUrl
-        this.udapWellknownUrl = serverBaseUrl + '/.well-known/udap'
+        if (community.communityId.charAt(community.communityId.length - 1) != '/')
+        {
+            community.communityId = community.communityId + '/'
+        }
+        this.udapWellknownUrl = serverBaseUrl + '/.well-known/udap?community=' + community.communityId
         this.organizationId = organizationId
         this.organizationName = organizationName
         this.purposeOfUse = purposeOfUse
@@ -262,7 +267,14 @@ class udapClient {
             errorMessages.push("Missing or invalid registration_endpoint_jwt_signing_alg_values_supported parameter.")
         }
         if (udapWellKnownJson.hasOwnProperty("signed_metadata")) {
-            var udapsignedMetadata = await this.validatesignedMetadata(udapWellKnownJson, errorMessages)
+            var udapsignedMetadata
+            try {
+                udapsignedMetadata = await this.validatesignedMetadata(udapWellKnownJson, errorMessages)
+            }
+            catch (e)
+            {
+                errorMessages.push("Error validating signed metadata.\r\n" + e.message)
+            }
         }
         if (errorMessages.length > 0) {
             var message = errorMessages.join("\r\n")
@@ -270,7 +282,7 @@ class udapClient {
             throw error
         }
         this.udapWellKnownMetadata = udapWellKnownJson
-        this.signedMetadata = udapsignedMetadata
+        this.signedMetadata = udapsignedMetadata 
     }
 
     async validatesignedMetadata(udapWellKnownJson, errorMessages) {
